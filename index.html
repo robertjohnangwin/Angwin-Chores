@@ -28,6 +28,7 @@ img{max-width:100%}
   --on-person:#FFFFFF;
   --gold:#F2B01E;
   --gold-ink:#3A2A00;
+  --od-bg:#FDECEA;
   --scrim:rgba(12,18,15,.62);
   --shadow:0 10px 30px rgba(10,20,15,.28);
   --display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
@@ -37,13 +38,13 @@ img{max-width:100%}
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --bg:#101412; --panel:#181E1B; --card:#212824; --fg:#E7EEE9; --muted:#9AA79F; --line:#2F3934; --track:#2B3530;
-    --btn:#E7EEE9; --btn-fg:#101412; --danger:#FF8A80; --danger-fg:#2B0A07; --shadow:0 10px 30px rgba(0,0,0,.55);
+    --btn:#E7EEE9; --btn-fg:#101412; --danger:#FF8A80; --danger-fg:#2B0A07; --shadow:0 10px 30px rgba(0,0,0,.55); --od-bg:#3A1E1C;
     color-scheme:dark;
   }
 }
 :root[data-theme="dark"]{
   --bg:#101412; --panel:#181E1B; --card:#212824; --fg:#E7EEE9; --muted:#9AA79F; --line:#2F3934; --track:#2B3530;
-  --btn:#E7EEE9; --btn-fg:#101412; --danger:#FF8A80; --danger-fg:#2B0A07; --shadow:0 10px 30px rgba(0,0,0,.55);
+  --btn:#E7EEE9; --btn-fg:#101412; --danger:#FF8A80; --danger-fg:#2B0A07; --shadow:0 10px 30px rgba(0,0,0,.55); --od-bg:#3A1E1C;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
@@ -141,6 +142,12 @@ button:focus,input:focus{outline:3px solid var(--fg);outline-offset:2px}
 .task.done .xpchip{background:rgba(255,255,255,.28);color:var(--on-person)}
 .box i{display:block;width:7px;height:14px;border-style:solid;border-width:0 3px 3px 0;transform:rotate(45deg);margin-top:-3px}
 .who{display:block;margin:6px 0 0 40px;font-size:15px;font-weight:600}
+.task.overdue{background:var(--od-bg);border:2px solid var(--danger);padding:11px}
+.odnote{display:flex;align-items:center;flex-wrap:wrap;margin:8px 0 0 40px;font-size:14px;font-weight:600;color:var(--danger)}
+.odpill{background:var(--danger);color:var(--danger-fg);border-radius:999px;font:700 12px var(--text);letter-spacing:.08em;padding:3px 10px;margin-right:8px}
+.hl{display:flex;align-items:center;min-width:0}
+.odbadge{margin-left:10px;background:var(--danger);color:var(--danger-fg);border-radius:999px;font:700 12px var(--text);letter-spacing:.06em;padding:3px 10px;white-space:nowrap}
+.odsheet{background:var(--od-bg);border:2px solid var(--danger);color:var(--danger);border-radius:8px;padding:8px 12px;margin:0 0 14px;font-weight:600}
 
 .editrow{display:flex;align-items:center;margin:0 0 8px}
 .field{flex:1 1 auto;min-width:0;font-size:17px;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px}
@@ -363,6 +370,24 @@ button:focus,input:focus{outline:3px solid var(--fg);outline-offset:2px}
     if (freq === "monthly") return d.getFullYear() + "-" + pad(d.getMonth()+1);
     return "" + d.getFullYear();
   }
+  /* Overdue: a task that was not done in the previous period (and already existed then) and still is not done now.
+     This is display only. XP, coins, combos and bonuses never look at it. */
+  function prevPeriodKey(freq, d){
+    var p;
+    if (freq === "daily") p = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1);
+    else if (freq === "weekly") p = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 7);
+    else if (freq === "monthly") p = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+    else p = new Date(d.getFullYear() - 1, 0, 1);
+    return periodKey(freq, p);
+  }
+  function overdueKey(t, now){
+    if (doneRec(t, now)) return null;
+    var pk = prevPeriodKey(t.freq, now);
+    if (!t.since || t.since > pk) return null;
+    var r = state.done[t.id];
+    if (r && r.p === pk) return null;
+    return pk;
+  }
   function fmtTime(d){
     var hr = d.getHours(), ap = hr >= 12 ? "pm" : "am";
     hr = hr % 12; if (hr === 0) hr = 12;
@@ -401,7 +426,7 @@ button:focus,input:focus{outline:3px solid var(--fg);outline-offset:2px}
   };
   function choreTasks(){
     var t = [];
-    FREQS.forEach(function(f){ CHORES[f.id].forEach(function(s){ t.push({id:uid(), title:s, freq:f.id}); }); });
+    FREQS.forEach(function(f){ CHORES[f.id].forEach(function(s){ t.push({id:uid(), title:s, freq:f.id, since:periodKey(f.id, new Date())}); }); });
     return t;
   }
   function seed(){
@@ -426,6 +451,8 @@ button:focus,input:focus{outline:3px solid var(--fg);outline-offset:2px}
     });
     /* One-time swap to the household chore list. Scores, trophies and history are kept. */
     if (s.taskSet !== TASKSET){ s.tasks = choreTasks(); s.done = {}; s.taskSet = TASKSET; }
+    /* Tasks saved before overdue existed start counting from the current period, so nothing turns red retroactively. */
+    s.tasks.forEach(function(t){ if (!t.since) t.since = periodKey(t.freq, new Date()); });
     s.people = out; s.done = s.done || {}; s.log = s.log || [];
     s.stats = s.stats || {}; s.weeks = s.weeks || {}; s.bonus = s.bonus || {};
     s.team = s.team || {streak:0, lastDay:""};
@@ -616,6 +643,10 @@ button:focus,input:focus{outline:3px solid var(--fg);outline-offset:2px}
 
   function periodLabel(fr, k){
     var p = k.split("-");
+    if (fr === "daily"){
+      var dd = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
+      return DAYS[dd.getDay()].slice(0, 3) + " " + dd.getDate() + " " + MONTHS[dd.getMonth()].slice(0, 3);
+    }
     if (fr === "weekly") return "Week of " + parseInt(p[2], 10) + " " + MONTHS[parseInt(p[1], 10) - 1].slice(0, 3);
     if (fr === "monthly") return MONTHS[parseInt(p[1], 10) - 1] + " " + p[0];
     return k;
@@ -871,7 +902,8 @@ button:focus,input:focus{outline:3px solid var(--fg);outline-offset:2px}
 
   function taskRow(t, now){
     var f = freqById(t.freq), rec = doneRec(t, now), p = rec ? personById(rec.by) : null;
-    var b = h("button", "task" + (rec ? " done" : "")); b.type = "button";
+    var od = rec ? null : overdueKey(t, now);
+    var b = h("button", "task" + (rec ? " done" : (od ? " overdue" : ""))); b.type = "button";
     var r1 = h("span", "row1"), box = h("span", "box");
     if (rec){
       b.style.background = p.color;
@@ -881,6 +913,12 @@ button:focus,input:focus{outline:3px solid var(--fg);outline-offset:2px}
     if (!rec) r1.appendChild(h("span", "xpchip", "+" + f.xp));
     else if (rec.xp) r1.appendChild(h("span", "xpchip", "+" + rec.xp));
     b.appendChild(r1);
+    if (od){
+      var note = h("span", "odnote");
+      note.appendChild(h("span", "odpill", "OVERDUE"));
+      note.appendChild(h("span", null, "Missed " + periodLabel(t.freq, od)));
+      b.appendChild(note);
+    }
     if (rec) b.appendChild(h("span", "who", p.name + " · " + fmtShort(rec.at) + (rec.combo > 1 ? " · combo ×" + rec.combo : "")));
     b.onclick = function(){ if (doneRec(t, new Date())) openDetail(t); else openWho(t); };
     return b;
@@ -910,7 +948,7 @@ button:focus,input:focus{outline:3px solid var(--fg);outline-offset:2px}
     var btn = h("button", "btn", "Add"); btn.type = "button";
     function go(){
       var v = trim(inp.value); if (!v) return;
-      state.tasks.push({id:uid(), title:v, freq:f.id}); save(); render();
+      state.tasks.push({id:uid(), title:v, freq:f.id, since:periodKey(f.id, new Date())}); save(); render();
     }
     btn.onclick = go;
     inp.onkeydown = function(e){ if (e.keyCode === 13) go(); };
@@ -924,9 +962,15 @@ button:focus,input:focus{outline:3px solid var(--fg);outline-offset:2px}
     FREQS.forEach(function(f){
       var tasks = state.tasks.filter(function(t){ return t.freq === f.id; });
       var n = 0; tasks.forEach(function(t){ if (doneRec(t, now)) n++; });
+      var lateList = tasks.filter(function(t){ return overdueKey(t, now); });
+      if (!editMode && lateList.length){
+        tasks = lateList.concat(tasks.filter(function(t){ return !overdueKey(t, now); }));
+      }
       var col = h("section", "col"), inner = h("div", "colin"); col.appendChild(inner);
-      var head = h("div", "colhead");
-      head.appendChild(h("h2", null, f.label));
+      var head = h("div", "colhead"), hl = h("div", "hl");
+      hl.appendChild(h("h2", null, f.label));
+      if (lateList.length) hl.appendChild(h("span", "odbadge", lateList.length + " OVERDUE"));
+      head.appendChild(hl);
       head.appendChild(h("span", "count", n + " / " + tasks.length));
       inner.appendChild(head);
       inner.appendChild(h("div", "reset", f.reset));
@@ -991,6 +1035,8 @@ button:focus,input:focus{outline:3px solid var(--fg);outline-offset:2px}
     sheet.appendChild(h("div", "eyebrow", f.label + " task"));
     sheet.appendChild(h("h3", "sheettitle", task.title));
     sheet.appendChild(h("div", "worth", "Worth " + f.xp + " XP + " + f.xp + " coins"));
+    var odk = overdueKey(task, new Date());
+    if (odk) sheet.appendChild(h("div", "odsheet", "Overdue: missed " + periodLabel(task.freq, odk) + ". Same points as always."));
     sheet.appendChild(h("div", "step", "Who did this?"));
     var row = h("div", "whobtns");
     activePeople().forEach(function(p){
